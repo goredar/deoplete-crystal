@@ -1,10 +1,11 @@
-import atexit
 import json
+import os
+from subprocess import PIPE, Popen
+
+from deoplete.util import getlines
 
 from .base import Base
-from deoplete.util import getlines
-from pathlib import Path
-from subprocess import Popen, PIPE
+
 
 class Source(Base):
     def __init__(self, vim):
@@ -14,27 +15,23 @@ class Source(Base):
         self.filetypes = ['crystal']
         self.mark = '[CR]'
         self.min_pattern_length = 1
+        self.port = "1234"
+        self.lib = self.vim.vars['deoplete#sources#crystal#lib']
+        self.cracker = self.vim.vars['deoplete#sources#crystal#bin']
 
-    # FIXME, HACK
-    def on_init(self, context):
-        lib     = self.vim.vars['deoplete#sources#crystal#lib']
-        cracker = self.vim.vars['deoplete#sources#crystal#bin']
-
-        pid = '/tmp/cracker.pid'
-        cmd = [cracker, 'server', lib]
-
-        if not Path(pid).is_file():
-            process = Popen(cmd, stdout=PIPE, stdin=PIPE)
-
-            with open(pid, 'w+') as f:
-                f.write('{}'.format(process.pid))
+    def on_init(self, _context):
+        if os.system(f"ss -tln 'src :{self.port}' | grep {self.port} -q"):
+            os.system(
+                f'sh -c "set -m; nohup {self.cracker} server '
+                f'-p {self.port} {self.lib} >/dev/null 2>&1 &"'
+            )
 
     def get_complete_position(self, context):
         pos = context['input'].rfind('.')
         return pos if pos < 0 else pos + 1
 
     def gather_candidates(self, context):
-        cmd = ['cracker', 'client', '--context']
+        cmd = [self.cracker, 'client', '-p', self.port, '--context']
 
         # Get lines before the current one
         buf = '\n'.join(getlines(self.vim, 1, context['position'][1]))
