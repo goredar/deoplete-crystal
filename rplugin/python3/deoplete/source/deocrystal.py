@@ -1,6 +1,6 @@
 import json
 import os
-from subprocess import PIPE, Popen
+from subprocess import DEVNULL, PIPE, Popen, call, run
 
 from deoplete.util import getlines
 
@@ -18,12 +18,16 @@ class Source(Base):
         self.port = "1234"
         self.lib = self.vim.vars['deoplete#sources#crystal#lib']
         self.cracker = self.vim.vars['deoplete#sources#crystal#bin']
+        self.project_path = os.getcwd()
 
     def on_init(self, _context):
-        if os.system(f"ss -tln 'src :{self.port}' | grep {self.port} -q"):
-            os.system(
+        # Check if cracker listens on default port
+        if call(f"ss -tln 'src :{self.port}' | grep {self.port} -q", shell=True):
+            # Run independent process
+            call(
                 f'sh -c "set -m; nohup {self.cracker} server '
-                f'-p {self.port} {self.lib} >/dev/null 2>&1 &"'
+                f'-p {self.port} {self.lib} >/dev/null 2>&1 &"',
+                shell=True
             )
 
     def get_complete_position(self, context):
@@ -31,13 +35,17 @@ class Source(Base):
         return pos if pos < 0 else pos + 1
 
     def gather_candidates(self, context):
-        cmd = [self.cracker, 'client', '-p', self.port, '--context']
+        base_cmd = [self.cracker, 'client', '-p', self.port]
 
         # Get lines before the current one
         buf = '\n'.join(getlines(self.vim, 1, context['position'][1]))
 
+        # Append project path to cracker completion source
+        run(base_cmd + ["--add-path", self.project_path],
+            stdin=DEVNULL, stdout=DEVNULL, stderr=DEVNULL)
+
         try:
-            process = Popen(cmd, stdout=PIPE, stdin=PIPE)
+            process = Popen(base_cmd + ['--context'], stdout=PIPE, stdin=PIPE)
             res = process.communicate(input=str.encode(buf))[0]
 
             results = json.loads(res)['results']
